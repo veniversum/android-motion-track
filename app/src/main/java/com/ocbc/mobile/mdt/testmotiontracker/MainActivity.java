@@ -21,12 +21,15 @@ import com.github.mikephil.charting.charts.LineChart;
 import com.github.mikephil.charting.components.Legend;
 import com.github.mikephil.charting.components.XAxis;
 import com.github.mikephil.charting.components.YAxis;
+import com.github.mikephil.charting.data.DataSet;
 import com.github.mikephil.charting.data.Entry;
 import com.github.mikephil.charting.data.LineData;
 import com.github.mikephil.charting.data.LineDataSet;
 import com.github.mikephil.charting.interfaces.datasets.ILineDataSet;
 import com.github.mikephil.charting.matrix.Vector3;
 import com.github.mikephil.charting.utils.ColorTemplate;
+
+import java.util.Arrays;
 
 /**
  * An example full-screen activity that shows and hides the system UI (i.e.
@@ -176,6 +179,12 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
             @Override
             public void onClick(View view) {
                 sensorEventCount = 0;
+                float data[] = new float[maxValues];
+                ILineDataSet ds = mChart.getLineData().getDataSetByIndex(0);
+                for (int i = 0; i < ds.getEntryCount(); i++) {
+                    data[i] = ds.getEntryForIndex(i).getY();
+                }
+                Log.i("Motion", Arrays.toString(data));
                 mChart.clearValues();
             }
         });
