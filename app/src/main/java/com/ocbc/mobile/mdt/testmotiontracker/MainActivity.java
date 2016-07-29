@@ -1,27 +1,38 @@
 package com.ocbc.mobile.mdt.testmotiontracker;
 
+import android.Manifest;
 import android.annotation.SuppressLint;
+import android.annotation.TargetApi;
+import android.app.Activity;
+import android.app.VoiceInteractor;
 import android.content.Context;
+import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.hardware.Sensor;
 import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
 import android.hardware.SensorManager;
+import android.os.AsyncTask;
+import android.os.Build;
+import android.os.Bundle;
+import android.os.Environment;
+import android.os.Handler;
+import android.support.v4.app.ActivityCompat;
 import android.support.v7.app.ActionBar;
 import android.support.v7.app.AppCompatActivity;
-import android.os.Bundle;
-import android.os.Handler;
 import android.util.Log;
 import android.view.MotionEvent;
-import android.view.Surface;
 import android.view.View;
 import android.widget.TextView;
 
+import com.android.volley.Request;
+import com.android.volley.RequestQueue;
+import com.android.volley.toolbox.JsonObjectRequest;
+import com.android.volley.toolbox.Volley;
 import com.github.mikephil.charting.charts.LineChart;
 import com.github.mikephil.charting.components.Legend;
 import com.github.mikephil.charting.components.XAxis;
 import com.github.mikephil.charting.components.YAxis;
-import com.github.mikephil.charting.data.DataSet;
 import com.github.mikephil.charting.data.Entry;
 import com.github.mikephil.charting.data.LineData;
 import com.github.mikephil.charting.data.LineDataSet;
@@ -29,13 +40,23 @@ import com.github.mikephil.charting.interfaces.datasets.ILineDataSet;
 import com.github.mikephil.charting.matrix.Vector3;
 import com.github.mikephil.charting.utils.ColorTemplate;
 
+import org.json.JSONArray;
+import org.json.JSONException;
+import org.json.JSONObject;
+
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.ObjectOutputStream;
 import java.util.Arrays;
+
+import cn.pedant.SweetAlert.SweetAlertDialog;
 
 /**
  * An example full-screen activity that shows and hides the system UI (i.e.
  * status bar and navigation/system bar) with user interaction.
  */
-public class MainActivity extends AppCompatActivity implements SensorEventListener{
+public class MainActivity extends AppCompatActivity implements SensorEventListener {
     /**
      * Whether or not the system UI should be auto-hidden after
      * {@link #AUTO_HIDE_DELAY_MILLIS} milliseconds.
@@ -110,14 +131,42 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     private SensorManager mSensorManager;
     private Sensor mSensor;
 
-    public static final int maxValues = 120;
+    public static final int maxValues = 500;
     public static int sensorEventCount = 0;
+
+    // Storage Permissions
+    private static final int REQUEST_EXTERNAL_STORAGE = 1;
+    private static String[] PERMISSIONS_STORAGE = {
+            Manifest.permission.READ_EXTERNAL_STORAGE,
+            Manifest.permission.WRITE_EXTERNAL_STORAGE
+    };
+
+    /**
+     * Checks if the app has permission to write to device storage
+     * <p/>
+     * If the app does not has permission then the user will be prompted to grant permissions
+     *
+     * @param activity
+     */
+    public static void verifyStoragePermissions(Activity activity) {
+        // Check if we have write permission
+        int permission = ActivityCompat.checkSelfPermission(activity, Manifest.permission.WRITE_EXTERNAL_STORAGE);
+
+        if (permission != PackageManager.PERMISSION_GRANTED) {
+            // We don't have permission so prompt the user
+            ActivityCompat.requestPermissions(
+                    activity,
+                    PERMISSIONS_STORAGE,
+                    REQUEST_EXTERNAL_STORAGE
+            );
+        }
+    }
 
     @Override
     protected void onResume() {
         super.onResume();
-        mSensorManager.registerListener(this, mSensor, SensorManager.SENSOR_DELAY_FASTEST);
-        delayedHide(100);
+        mSensorManager.registerListener(this, mSensor, 10000);
+        hide();
     }
 
     @Override
@@ -131,6 +180,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         super.onCreate(savedInstanceState);
 
         setContentView(R.layout.activity_main);
+        verifyStoragePermissions(this);
 
         mVisible = true;
         mControlsView = findViewById(R.id.fullscreen_content_controls);
@@ -176,6 +226,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
 
         // Set up the user interaction to manually show or hide the system UI.
         mContentView.setOnClickListener(new View.OnClickListener() {
+            @TargetApi(Build.VERSION_CODES.KITKAT)
             @Override
             public void onClick(View view) {
                 sensorEventCount = 0;
@@ -185,6 +236,49 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
                     data[i] = ds.getEntryForIndex(i).getY();
                 }
                 Log.i("Motion", Arrays.toString(data));
+                try {
+                    File file = new File(Environment.getExternalStoragePublicDirectory(
+                            Environment.DIRECTORY_DOWNLOADS), "shakeee.txt");
+                    FileOutputStream fos = new FileOutputStream(file);
+                    ObjectOutputStream os = new ObjectOutputStream(fos);
+                    os.writeObject(Arrays.toString(data));
+                    os.close();
+                    fos.close();
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+
+                new AsyncTask<float[], Void, Void>() {
+                    Context mContext;
+
+                    @Override
+                    protected void onPreExecute() {
+                        mContext = mContentView.getContext();
+                        super.onPreExecute();
+                    }
+
+                    @Override
+                    protected Void doInBackground(float[]... params) {
+                        RequestQueue queue = Volley.newRequestQueue(mContext);
+                        String url = "http://e94826c3.ngrok.io/log/";
+
+                        // Request a string response from the provided URL.
+                        JsonObjectRequest jsonRequest;
+                        try {
+                            jsonRequest = new JsonObjectRequest(Request.Method.POST, url, new JSONObject().put("data", new JSONArray(params[0])), null, null);
+                            queue.add(jsonRequest);
+                        } catch (JSONException e) {
+                            e.printStackTrace();
+                        }
+                        return null;
+                    }
+                }.execute(data);
+
+                SweetAlertDialog pDialog = new SweetAlertDialog(mContentView.getContext(), SweetAlertDialog.SUCCESS_TYPE);
+                //pDialog.getProgressHelper().setBarColor(Color.parseColor("#A5DC86"));
+                pDialog.setTitleText("Shake Pattern Matched!");
+                pDialog.setCancelable(false);
+                pDialog.show();
                 mChart.clearValues();
             }
         });
@@ -202,7 +296,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         // Trigger the initial hide() shortly after the activity has been
         // created, to briefly hint to the user that UI controls
         // are available.
-        delayedHide(100);
+        hide();
     }
 
     private void addEntry(float val) {
